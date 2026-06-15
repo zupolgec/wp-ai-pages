@@ -1,6 +1,6 @@
 <?php
 /**
- * Endpoint REST a token (per-utente): deploy di una landing da un agent cloud,
+ * Endpoint REST a token (per-utente): deploy di una AI page da un agent cloud,
  * senza WP-CLI né SSH. Il token identifica l'utente e i deploy sono attribuiti
  * a lui.
  *
@@ -33,6 +33,10 @@ function aip_extract_token( WP_REST_Request $req ) {
 }
 
 function aip_rest_check_token( WP_REST_Request $req ) {
+	if ( 'disabled' === aip_get_access_mode() ) {
+		return new WP_Error( 'aip_deploy_disabled', 'Pubblicazione automatica disattivata.', [ 'status' => 403 ] );
+	}
+
 	$provided = aip_extract_token( $req );
 	if ( '' === $provided ) {
 		return new WP_Error( 'aip_no_token', 'Token mancante.', [ 'status' => 401 ] );
@@ -44,7 +48,7 @@ function aip_rest_check_token( WP_REST_Request $req ) {
 	}
 
 	wp_set_current_user( $user_id );
-	if ( ! current_user_can( 'edit_posts' ) ) {
+	if ( ! aip_current_user_can_deploy() ) {
 		return new WP_Error( 'aip_forbidden', 'Utente senza permessi di pubblicazione.', [ 'status' => 403 ] );
 	}
 	return true;

@@ -1,6 +1,6 @@
 <?php
 /**
- * Pagina Impostazioni: prompt pronto per l'AI, token deploy (per-utente),
+ * Pagina Impostazioni: prompt pronto per l'AI, token per utente,
  * SEO mode, GTM, chrome di default e documentazione dei workflow.
  */
 
@@ -26,22 +26,40 @@ function aip_handle_save_settings() {
 	}
 	check_admin_referer( 'aip_settings' );
 
-	$old_prefix = (string) get_option( 'aip_prefix', 'lp' );
-	$new_prefix = sanitize_title( wp_unslash( $_POST['aip_prefix'] ?? '' ) );
+	$raw_prefix = isset( $_POST['aip_prefix'] ) ? trim( wp_unslash( $_POST['aip_prefix'] ) ) : '';
+	$new_prefix = sanitize_title( $raw_prefix );
+	if ( '' === $new_prefix ) {
+		wp_safe_redirect( add_query_arg(
+			[ 'post_type' => 'ai_page', 'page' => 'aip-settings', 'aip_prefix_error' => 'empty' ],
+			admin_url( 'edit.php' )
+		) );
+		exit;
+	}
+
+	$access_mode = isset( $_POST['aip_access_mode'] ) ? sanitize_key( wp_unslash( $_POST['aip_access_mode'] ) ) : 'disabled';
+	if ( ! in_array( $access_mode, [ 'disabled', 'admin', 'editor' ], true ) ) {
+		$access_mode = 'disabled';
+	}
+	update_option( 'aip_access_mode', $access_mode );
+
+	$old_prefix = (string) get_option( 'aip_prefix', 'pages' );
 	update_option( 'aip_prefix', $new_prefix );
 	if ( $new_prefix !== $old_prefix ) {
 		update_option( 'aip_flush_rewrite', 1 );
 	}
 
-	$chrome = $_POST['aip_default_chrome'] ?? 'none';
+	$chrome = isset( $_POST['aip_default_chrome'] ) ? sanitize_key( wp_unslash( $_POST['aip_default_chrome'] ) ) : 'none';
 	update_option( 'aip_default_chrome', in_array( $chrome, [ 'none', 'site', 'full' ], true ) ? $chrome : 'none' );
 
 	update_option( 'aip_site_head', empty( $_POST['aip_site_head'] ) ? '' : '1' );
 	update_option( 'aip_head_snippet', wp_unslash( $_POST['aip_head_snippet'] ?? '' ) );
 	update_option( 'aip_body_snippet', wp_unslash( $_POST['aip_body_snippet'] ?? '' ) );
 
-	if ( ! empty( $_POST['aip_regen_token'] ) ) {
-		update_user_meta( get_current_user_id(), 'aip_api_token', aip_generate_token() );
+	$token_action = isset( $_POST['aip_token_action'] ) ? sanitize_key( wp_unslash( $_POST['aip_token_action'] ) ) : '';
+	if ( 'generate' === $token_action && aip_current_user_can_deploy() ) {
+		aip_set_user_token( get_current_user_id() );
+	} elseif ( 'revoke' === $token_action ) {
+		aip_revoke_user_token( get_current_user_id() );
 	}
 
 	wp_safe_redirect( add_query_arg(
@@ -56,17 +74,23 @@ function aip_render_settings_page() {
 		return;
 	}
 
-	$token     = aip_get_user_token( get_current_user_id() );
-	$prefix    = get_option( 'aip_prefix', 'lp' );
-	$chrome    = get_option( 'aip_default_chrome', 'full' );
-	$site_head = get_option( 'aip_site_head' );
-	$head_snip = (string) get_option( 'aip_head_snippet', '' );
-	$body_snip = (string) get_option( 'aip_body_snippet', '' );
-	$endpoint  = home_url( '/wp-json/ai-pages/v1/deploy' );
-	$action    = admin_url( 'admin-post.php' );
-	$site      = home_url( '/' );
+	$user_id     = get_current_user_id();
+	$access_mode = aip_get_access_mode();
+	$new_token   = aip_take_new_user_token( $user_id );
+	$has_token   = aip_user_has_token( $user_id );
+	$can_deploy  = aip_current_user_can_deploy();
+	$created_at  = (string) get_user_meta( $user_id, 'aip_api_token_created_at', true );
+	$prefix      = get_option( 'aip_prefix', 'pages' );
+	$chrome      = get_option( 'aip_default_chrome', 'full' );
+	$site_head   = get_option( 'aip_site_head' );
+	$head_snip   = (string) get_option( 'aip_head_snippet', '' );
+	$body_snip   = (string) get_option( 'aip_body_snippet', '' );
+	$endpoint    = home_url( '/wp-json/ai-pages/v1/deploy' );
+	$action      = admin_url( 'admin-post.php' );
+	$site        = home_url( '/' );
+	$prompt_token = '' !== $new_token ? $new_token : '<token-generato-da-questa-pagina>';
 
-	$prompt = aip_agent_prompt( $endpoint, $token, $site );
+	$prompt = aip_agent_prompt( $endpoint, $prompt_token, $site );
 	$dark   = 'background:#1e1e2e;color:#e7ecf5;padding:14px;border-radius:6px;overflow:auto;white-space:pre-wrap';
 	?>
 	<div class="wrap">
@@ -74,6 +98,9 @@ function aip_render_settings_page() {
 
 		<?php if ( ! empty( $_GET['updated'] ) ) : ?>
 			<div class="notice notice-success is-dismissible"><p>Impostazioni salvate.</p></div>
+		<?php endif; ?>
+		<?php if ( ! empty( $_GET['aip_prefix_error'] ) ) : ?>
+			<div class="notice notice-error is-dismissible"><p>Inserisci un prefisso valido per l'indirizzo delle AI page.</p></div>
 		<?php endif; ?>
 
 		<form method="post" action="<?php echo esc_url( $action ); ?>">
@@ -83,19 +110,47 @@ function aip_render_settings_page() {
 			<h2>Configurazione</h2>
 			<table class="form-table" role="presentation">
 				<tr>
-					<th scope="row"><label for="aip_api_token">Il tuo token deploy</label></th>
+					<th scope="row"><label for="aip_access_mode">Pubblicazione automatica</label></th>
 					<td>
-						<input type="text" id="aip_api_token" value="<?php echo esc_attr( $token ); ?>" readonly class="regular-text code" style="width:30em" onclick="this.select()">
-						<p><label><input type="checkbox" name="aip_regen_token" value="1"> Rigenera il mio token al salvataggio</label></p>
-						<p class="description">Token personale: i deploy via REST sono attribuiti a te. Ogni utente ha il suo (anche nel profilo).</p>
+						<select id="aip_access_mode" name="aip_access_mode">
+							<option value="disabled" <?php selected( $access_mode, 'disabled' ); ?>>Disattivata</option>
+							<option value="admin" <?php selected( $access_mode, 'admin' ); ?>>Solo amministratori</option>
+							<option value="editor" <?php selected( $access_mode, 'editor' ); ?>>Amministratori ed editor</option>
+						</select>
+						<p class="description">Controlla chi può creare e aggiornare AI page con token. Disattivata è l'opzione più sicura.</p>
 					</td>
 				</tr>
 				<tr>
-					<th scope="row"><label for="aip_prefix">Indirizzo delle landing</label></th>
+					<th scope="row"><label for="aip_api_token">Il tuo token</label></th>
+					<td>
+						<?php if ( ! $can_deploy ) : ?>
+							<p>Attiva la pubblicazione automatica per generare un token.</p>
+						<?php elseif ( '' !== $new_token ) : ?>
+							<input type="text" id="aip_api_token" value="<?php echo esc_attr( $new_token ); ?>" readonly class="regular-text code" style="width:30em" onclick="this.select()">
+							<p class="description">Copialo ora: non sarà più mostrato.</p>
+						<?php elseif ( $has_token ) : ?>
+							<p><strong>Token attivo.</strong><?php echo $created_at ? ' Creato il ' . esc_html( mysql2date( get_option( 'date_format' ), $created_at ) ) . '.' : ''; ?></p>
+							<p class="description">Per sicurezza il valore non viene mostrato. Generane uno nuovo se l'hai perso.</p>
+						<?php else : ?>
+							<p>Nessun token attivo.</p>
+						<?php endif; ?>
+
+						<?php if ( $can_deploy ) : ?>
+							<p>
+								<button type="submit" class="button" name="aip_token_action" value="generate">Genera nuovo token</button>
+								<?php if ( $has_token ) : ?>
+									<button type="submit" class="button" name="aip_token_action" value="revoke">Revoca token</button>
+								<?php endif; ?>
+							</p>
+						<?php endif; ?>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="aip_prefix">Indirizzo delle AI page</label></th>
 					<td>
 						<?php $home = untrailingslashit( home_url() ); ?>
-						<code><?php echo esc_html( $home ); ?>/</code><input type="text" id="aip_prefix" name="aip_prefix" value="<?php echo esc_attr( $prefix ); ?>" style="width:10em" placeholder="lp"><code>/nome-pagina</code>
-						<p class="description">Cartella sotto cui vivono le landing. Vuoto = alla radice del sito: sconsigliato, può confliggere con pagine e articoli con lo stesso indirizzo.</p>
+						<code><?php echo esc_html( $home ); ?>/</code><input type="text" id="aip_prefix" name="aip_prefix" value="<?php echo esc_attr( $prefix ); ?>" style="width:10em" placeholder="pages" required><code>/nome-pagina</code>
+						<p class="description">Cartella sotto cui vivono le AI page. Non può essere vuota, così eviti conflitti con pagine e articoli.</p>
 					</td>
 				</tr>
 				<tr>
@@ -106,7 +161,7 @@ function aip_render_settings_page() {
 							<option value="site" <?php selected( $chrome, 'site' ); ?>>Con header e footer del sito</option>
 							<option value="full" <?php selected( $chrome, 'full' ); ?>>Documento HTML completo</option>
 						</select>
-						<p class="description">Valore proposto per le nuove landing.</p>
+						<p class="description">Valore proposto per le nuove AI page.</p>
 					</td>
 				</tr>
 				<tr>
@@ -138,17 +193,17 @@ function aip_render_settings_page() {
 		<hr>
 
 		<h2>Prompt per l'agent AI</h2>
-		<p>Incollalo nel tuo agent (cloud o locale): contiene già endpoint e token per pubblicare landing in autonomia.</p>
+		<p>Incollalo nel tuo agent cloud o locale. Se il token non è appena stato generato, nel prompt trovi un segnaposto da sostituire.</p>
 		<textarea id="aip-prompt" readonly rows="16" style="width:100%;font-family:Menlo,Consolas,monospace;font-size:12px;<?php echo esc_attr( $dark ); ?>"><?php echo esc_textarea( $prompt ); ?></textarea>
 		<p>
 			<button type="button" class="button" onclick="var t=document.getElementById('aip-prompt');t.select();document.execCommand('copy');this.textContent='Copiato!';">Copia prompt</button>
-			<span class="description">Il prompt include il tuo token personale: i deploy risulteranno fatti da te.</span>
+			<span class="description">Il token identifica l'utente che pubblica le AI page.</span>
 		</p>
 
 		<hr>
 
 		<h2>Le tre modalità chrome</h2>
-		<p>Il "chrome" decide quanta cornice del sito avvolge la landing. Si sceglie per ogni pagina (e c'è un default qui sopra).</p>
+		<p>Il "chrome" decide quanta cornice del sito avvolge la AI page. Si sceglie per ogni pagina (e c'è un default qui sopra).</p>
 		<table class="widefat striped" style="max-width:900px">
 			<thead><tr><th>Modalità</th><th>Cosa produce</th><th>Quando usarla</th></tr></thead>
 			<tbody>
@@ -159,27 +214,27 @@ function aip_render_settings_page() {
 				</tr>
 				<tr>
 					<td><code>site</code></td>
-					<td>La landing è avvolta da <strong>header e footer del tema</strong> (menu, logo, footer) e i plugin SEO funzionano come nel resto del sito.</td>
-					<td>Quando la landing deve sembrare parte del sito e mantenere navigazione e brand.</td>
+					<td>La AI page è avvolta da <strong>header e footer del tema</strong> (menu, logo, footer) e i plugin SEO funzionano come nel resto del sito.</td>
+					<td>Quando la AI page deve sembrare parte del sito e mantenere navigazione e brand.</td>
 				</tr>
 				<tr>
 					<td><code>full</code></td>
 					<td>Il tuo HTML viene servito <strong>verbatim</strong>, dal <code>&lt;!doctype&gt;</code> al <code>&lt;/html&gt;</code>. Il plugin non aggiunge nulla: head, SEO, script li controlli tu.</td>
-					<td>Quando l'AI genera un documento HTML completo (es. con Tailwind da CDN). Fedelta' totale all'output, indipendente dal tema.</td>
+					<td>Quando l'AI genera un documento HTML completo (es. con Tailwind da CDN). Fedeltà totale all'output, indipendente dal tema.</td>
 				</tr>
 			</tbody>
 		</table>
 
 		<h2>Workflow disponibili</h2>
-		<p>Una landing è un file HTML self-contained. La <strong>landing key</strong> la identifica: ripubblicare con la stessa key aggiorna invece di duplicare.</p>
+		<p>Una AI page è un file HTML self-contained. La <strong>AI page key</strong> la identifica: ripubblicare con la stessa key aggiorna invece di duplicare.</p>
 
 		<h3>1. Deploy da agent cloud (REST a token)</h3>
 		<pre style="<?php echo esc_attr( $dark ); ?>">curl -X POST <?php echo esc_html( $endpoint ); ?> \
-  -H "Authorization: Bearer <?php echo esc_html( $token ); ?>" \
+  -H "Authorization: Bearer <?php echo esc_html( $prompt_token ); ?>" \
   -H "Content-Type: application/json" \
   -d '{ "key": "black-friday", "title": "Black Friday", "chrome": "full",
         "status": "publish", "html": "&lt;!doctype html&gt;...&lt;/html&gt;" }'</pre>
-		<p class="description">Campi: <code>key</code> e <code>html</code> obbligatori; <code>title</code>, <code>slug</code>, <code>chrome</code>, <code>status</code> opzionali. Risposta: <code>{ ok, id, url, action }</code>.</p>
+		<p class="description">Campi: <code>key</code> e <code>html</code> obbligatori; <code>title</code>, <code>slug</code>, <code>chrome</code>, <code>status</code> opzionali. La <code>key</code> viene salvata come AI page key univoca. Risposta: <code>{ ok, id, url, action }</code>.</p>
 
 		<h3>2. Deploy da riga di comando (WP-CLI)</h3>
 		<pre style="<?php echo esc_attr( $dark ); ?>">wp ai-page upsert --key=black-friday --file=./bf.html --chrome=full
@@ -187,7 +242,7 @@ cat bf.html | wp ai-page upsert --key=black-friday</pre>
 		<p class="description">Tieni i file <code>.html</code> in git per diff, review e rollback.</p>
 
 		<h3>3. Editing manuale</h3>
-		<p>Da <strong>AI Pages &rarr; Aggiungi</strong>: editor con syntax highlighting, anteprima live (con breakpoint e schermo intero) e versioning via revisioni di WordPress.</p>
+		<p>Da <strong>AI Pages &rarr; Aggiungi</strong>: editor con syntax highlighting, anteprima live (con breakpoint e schermo intero) e versioning tramite revisioni di WordPress.</p>
 	</div>
 	<?php
 }
@@ -197,15 +252,15 @@ cat bf.html | wp ai-page upsert --key=black-friday</pre>
  */
 function aip_agent_prompt( $endpoint, $token, $site ) {
 	return <<<PROMPT
-Sei un assistente che crea e pubblica landing page sul sito {$site}.
+Sei un assistente che crea e pubblica AI page sul sito {$site}.
 
-Per pubblicare una landing fai UNA sola richiesta HTTP:
+Per pubblicare una AI page fai UNA sola richiesta HTTP:
 
 POST {$endpoint}
 Header: Authorization: Bearer {$token}
 Header: Content-Type: application/json
 Body JSON: {
-  "key": "<slug-univoco-della-landing>",
+  "key": "<ai-page-key-univoca>",
   "title": "<titolo>",
   "chrome": "full",
   "status": "publish",
@@ -214,8 +269,8 @@ Body JSON: {
 
 Regole per l'HTML:
 - Deve essere self-contained: CSS e JS inline, nessun file locale. Font e librerie solo da CDN.
-- chrome "full": generi un documento HTML completo (<!doctype html> ... </html>). chrome "none": generi solo il contenuto del <body> (il sito aggiunge una struttura minima). chrome "site": la landing viene avvolta da header e footer del tema.
-- "key" identifica la landing: riusare la stessa key AGGIORNA la pagina invece di crearne una nuova.
+- chrome "full": generi un documento HTML completo (<!doctype html> ... </html>). chrome "none": generi solo il contenuto del <body> (il sito aggiunge una struttura minima). chrome "site": la AI page viene avvolta da header e footer del tema.
+- "key" identifica la AI page: riusare la stessa key AGGIORNA la pagina invece di crearne una nuova.
 - In italiano non scrivere tutto a iniziali maiuscole (titolo della pagina, non Titolo Della Pagina).
 
 La risposta è JSON: { ok, id, url, action }. Comunica all'utente l'url pubblicato.

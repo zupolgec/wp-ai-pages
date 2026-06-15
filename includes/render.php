@@ -8,7 +8,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-// Le landing sono host-agnostiche: niente redirect canonico verso siteurl,
+// Le AI page sono host-agnostiche: niente redirect canonico verso siteurl,
 // così funzionano dietro un tunnel (expose) o un dominio diverso.
 add_action( 'template_redirect', function () {
 	if ( is_singular( 'ai_page' ) ) {
@@ -25,7 +25,7 @@ function aip_template_include( $template ) {
 }
 
 /**
- * Contenuto della landing. Echo raw per default; se la pagina ha gli shortcode
+ * Contenuto della AI page. Echo raw per default; se la pagina ha gli shortcode
  * attivi applica solo do_shortcode (niente wpautop/texturize), così l'HTML
  * resta fedele ma gli shortcode registrati vengono eseguiti.
  */

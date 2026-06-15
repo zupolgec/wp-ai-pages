@@ -40,13 +40,13 @@ function aip_write_post( array $postarr ) {
 }
 
 /**
- * Crea o aggiorna una landing in modo idempotente per landing_key.
+ * Crea o aggiorna una AI page in modo idempotente per AI page key.
  *
  * @param array $args key, html, title?, slug?, chrome?, status?
  * @return array|WP_Error  [id, url, action] oppure WP_Error.
  */
 function aip_upsert_landing( array $args ) {
-	$key = sanitize_text_field( $args['key'] ?? '' );
+	$key = aip_sanitize_page_key( $args['key'] ?? '' );
 	if ( '' === $key ) {
 		return new WP_Error( 'aip_missing_key', 'Parametro "key" obbligatorio.' );
 	}
@@ -62,14 +62,10 @@ function aip_upsert_landing( array $args ) {
 	$slug   = sanitize_title( $args['slug'] ?? $key );
 	$title  = sanitize_text_field( $args['title'] ?? $key );
 
-	$existing = get_posts( [
-		'post_type'   => 'ai_page',
-		'post_status' => 'any',
-		'meta_key'    => '_aip_landing_key',
-		'meta_value'  => $key,
-		'numberposts' => 1,
-		'fields'      => 'ids',
-	] );
+	$existing = aip_get_page_ids_by_key( $key );
+	if ( count( $existing ) > 1 ) {
+		return new WP_Error( 'aip_duplicate_key', 'Questa AI page key è già usata da più pagine.' );
+	}
 
 	$postarr = [
 		'post_type'    => 'ai_page',
@@ -95,7 +91,7 @@ function aip_upsert_landing( array $args ) {
 		return $id;
 	}
 
-	update_post_meta( $id, '_aip_landing_key', $key );
+	update_post_meta( $id, '_aip_page_key', $key );
 	update_post_meta( $id, '_aip_chrome', $chrome );
 
 	return [
@@ -103,4 +99,37 @@ function aip_upsert_landing( array $args ) {
 		'url'    => get_permalink( $id ),
 		'action' => $action,
 	];
+}
+
+function aip_sanitize_page_key( $key ) {
+	return sanitize_title( (string) $key );
+}
+
+function aip_get_page_ids_by_key( $key, $exclude_id = 0 ) {
+	$key = aip_sanitize_page_key( $key );
+	if ( '' === $key ) {
+		return [];
+	}
+
+	$ids = get_posts( [
+		'post_type'   => 'ai_page',
+		'post_status' => 'any',
+		'meta_key'    => '_aip_page_key',
+		'meta_value'  => $key,
+		'numberposts' => 2,
+		'fields'      => 'ids',
+	] );
+
+	if ( ! $exclude_id ) {
+		return array_map( 'intval', $ids );
+	}
+
+	$exclude_id = (int) $exclude_id;
+	return array_values( array_filter( array_map( 'intval', $ids ), function ( $id ) use ( $exclude_id ) {
+		return $id !== $exclude_id;
+	} ) );
+}
+
+function aip_page_key_exists( $key, $exclude_id = 0 ) {
+	return ! empty( aip_get_page_ids_by_key( $key, $exclude_id ) );
 }

@@ -81,16 +81,38 @@
 		}
 
 		/* --- Anteprima live --- */
+		function bridgeScript() {
+			return '<script>(function(){' +
+				'var pick=false,last=null;' +
+				'function closest(el){while(el&&el.nodeType===1){if(el.hasAttribute("data-aip-loc")){return el;}el=el.parentElement;}return null;}' +
+				'function clear(){if(last){last.style.outline="";last.style.outlineOffset="";last=null;}}' +
+				'window.addEventListener("message",function(e){var d=e.data||{};if(d.type!=="aip-set-pick"){return;}pick=!!d.on;if(document.body){document.body.style.cursor=pick?"crosshair":"";}if(!pick){clear();}});' +
+				'document.addEventListener("click",function(e){if(!pick){return;}e.preventDefault();e.stopPropagation();var el=closest(e.target);if(el){parent.postMessage({type:"aip-pick",offset:parseInt(el.getAttribute("data-aip-loc"),10)},"*");}},true);' +
+				'document.addEventListener("mouseover",function(e){if(!pick){return;}var el=closest(e.target);if(el===last){return;}clear();if(el){el.style.outline="2px solid #2271b1";el.style.outlineOffset="-2px";last=el;}},true);' +
+				'}());</scr' + 'ipt>';
+		}
+
+		function injectBridge( doc ) {
+			var script = bridgeScript();
+			if ( /<\/body\s*>/i.test( doc ) ) {
+				return doc.replace( /<\/body\s*>/i, script + '</body>' );
+			}
+			if ( /<\/html\s*>/i.test( doc ) ) {
+				return doc.replace( /<\/html\s*>/i, script + '</html>' );
+			}
+			return doc + script;
+		}
+
 		function buildDoc( html ) {
 			var annotated = annotate( html );
 			var head = html.trim().toLowerCase();
 			var isDoc = head.indexOf( '<!doctype' ) === 0 || head.indexOf( '<html' ) === 0;
 			if ( isDoc ) {
-				return annotated;
+				return injectBridge( annotated );
 			}
-			return '<!doctype html><html><head><meta charset="utf-8">' +
+			return injectBridge( '<!doctype html><html><head><meta charset="utf-8">' +
 				'<meta name="viewport" content="width=device-width,initial-scale=1"></head><body>' +
-				annotated + '</body></html>';
+				annotated + '</body></html>' );
 		}
 		function render() {
 			iframe.srcdoc = buildDoc( cm.getValue() );
@@ -104,7 +126,7 @@
 
 		/* -----------------------------------------------------------------
 		 * Click-to-highlight: click nell'anteprima -> evidenzia nel codice.
-		 * L'iframe è srcdoc (same-origin): accedo a contentDocument.
+		 * L'iframe è sandboxed: comunica con la pagina admin via postMessage.
 		 * --------------------------------------------------------------- */
 		function highlightAt( offset ) {
 			var src = cm.getValue();
@@ -120,67 +142,28 @@
 			cm.scrollIntoView( { from: from, to: to }, 100 );
 		}
 
-		var lastOutlined = null;
-		function clearOutline() {
-			if ( lastOutlined ) {
-				lastOutlined.style.outline = '';
-				lastOutlined.style.outlineOffset = '';
-				lastOutlined = null;
+		function sendPickState() {
+			if ( iframe.contentWindow ) {
+				iframe.contentWindow.postMessage( { type: 'aip-set-pick', on: pickMode }, '*' );
 			}
 		}
 
-		iframe.addEventListener( 'load', function () {
-			var doc;
-			try {
-				doc = iframe.contentDocument;
-			} catch ( e ) {
+		iframe.addEventListener( 'load', sendPickState );
+		window.addEventListener( 'message', function ( e ) {
+			var data = e.data || {};
+			if ( e.source !== iframe.contentWindow || data.type !== 'aip-pick' ) {
 				return;
 			}
-			if ( ! doc ) {
-				return;
+			if ( root.classList.contains( 'aip-fs' ) ) {
+				root.classList.remove( 'aip-fs' );
 			}
-			doc.addEventListener( 'click', function ( e ) {
-				if ( ! pickMode ) {
-					return;
-				}
-				e.preventDefault();
-				e.stopPropagation();
-				var el = e.target.closest && e.target.closest( '[data-aip-loc]' );
-				if ( el ) {
-					// In schermo intero: esci e porta al codice.
-					if ( root.classList.contains( 'aip-fs' ) ) {
-						root.classList.remove( 'aip-fs' );
-					}
-					highlightAt( parseInt( el.getAttribute( 'data-aip-loc' ), 10 ) );
-				}
-			}, true );
-			doc.addEventListener( 'mouseover', function ( e ) {
-				if ( ! pickMode ) {
-					return;
-				}
-				var el = e.target.closest && e.target.closest( '[data-aip-loc]' );
-				if ( el === lastOutlined ) {
-					return;
-				}
-				clearOutline();
-				if ( el ) {
-					el.style.outline = '2px solid #2271b1';
-					el.style.outlineOffset = '-2px';
-					lastOutlined = el;
-				}
-			}, true );
+			highlightAt( parseInt( data.offset, 10 ) );
 		} );
 
 		function setPick( on ) {
 			pickMode = on;
 			$( '#aip-pick' ).toggleClass( 'active', on );
-			var doc = iframe.contentDocument;
-			if ( doc && doc.body ) {
-				doc.body.style.cursor = on ? 'crosshair' : '';
-			}
-			if ( ! on ) {
-				clearOutline();
-			}
+			sendPickState();
 		}
 		$( '#aip-pick' ).on( 'click', function () {
 			setPick( ! pickMode );

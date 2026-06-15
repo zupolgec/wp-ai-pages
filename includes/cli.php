@@ -10,12 +10,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 class AIP_CLI {
 
 	/**
-	 * Crea o aggiorna una AI page da un file HTML (idempotente per landing key).
+	 * Crea o aggiorna una AI page da un file HTML (idempotente per AI page key).
 	 *
 	 * ## OPTIONS
 	 *
 	 * --key=<key>
-	 * : Chiave univoca della landing. Una page con questa chiave viene aggiornata.
+	 * : Chiave univoca della AI page. Una pagina con questa chiave viene aggiornata.
 	 *
 	 * [--file=<path>]
 	 * : Path al file HTML self-contained. Se omesso legge da STDIN.

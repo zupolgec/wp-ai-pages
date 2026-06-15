@@ -1,0 +1,81 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to package, without the leading v. Must match plugin metadata.
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build GitHub release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+
+          PLUGIN_VERSION=$(awk -F': ' '/^[[:space:]]*\* Version:/ { print $2; exit }' ai-pages.php | tr -d '\r')
+          STABLE_TAG=$(awk -F': ' '/^Stable tag:/ { print $2; exit }' readme.txt | tr -d '\r')
+
+          if [ "$VERSION" != "$PLUGIN_VERSION" ]; then
+            echo "Tag/input version $VERSION does not match plugin header $PLUGIN_VERSION" >&2
+            exit 1
+          fi
+
+          if [ "$VERSION" != "$STABLE_TAG" ]; then
+            echo "Tag/input version $VERSION does not match readme Stable tag $STABLE_TAG" >&2
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build distributable zip
+        run: |
+          SLUG="ai-pages"
+          VERSION="${{ steps.version.outputs.version }}"
+          rm -rf build dist
+          mkdir -p "build/$SLUG" dist
+          rsync -a --delete \
+            --exclude='.git' \
+            --exclude='.gitignore' \
+            --exclude='.github' \
+            --exclude='.DS_Store' \
+            --exclude='.playwright-cli' \
+            --exclude='build' \
+            --exclude='dist' \
+            --exclude='node_modules' \
+            --exclude='vendor' \
+            ./ "build/$SLUG/"
+          ( cd build && zip -r "../dist/$SLUG-$VERSION.zip" "$SLUG" )
+          unzip -l "dist/$SLUG-$VERSION.zip"
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-pages-${{ steps.version.outputs.version }}
+          path: dist/*.zip
+
+      - name: Publish GitHub Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true

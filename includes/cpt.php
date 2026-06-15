@@ -1,6 +1,6 @@
 <?php
 /**
- * Custom post type ai_page (le landing). Niente editor a blocchi: l'HTML si
+ * Custom post type ai_page. Niente editor a blocchi: l'HTML si
  * modifica dal nostro editor con anteprima.
  */
 
@@ -10,8 +10,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 add_action( 'init', 'aip_register_cpt' );
 function aip_register_cpt() {
-	$prefix = (string) get_option( 'aip_prefix', 'lp' );
-	$prefix = trim( $prefix, '/' );
+	$prefix = sanitize_title( (string) get_option( 'aip_prefix', 'pages' ) );
+	$prefix = '' !== $prefix ? $prefix : 'pages';
 
 	register_post_type( 'ai_page', [
 		'label'        => 'AI Pages',
@@ -26,8 +26,10 @@ function aip_register_cpt() {
 		'show_in_rest' => true,
 		'menu_icon'    => 'dashicons-welcome-widgets-menus',
 		'supports'     => [ 'title', 'revisions' ],
-		'rewrite'      => [ 'slug' => ( '' !== $prefix ? $prefix : '/' ), 'with_front' => false ],
+		'rewrite'      => [ 'slug' => $prefix, 'with_front' => false ],
 		'has_archive'  => false,
+		'capability_type' => [ 'ai_page', 'ai_pages' ],
+		'map_meta_cap' => true,
 	] );
 }
 
