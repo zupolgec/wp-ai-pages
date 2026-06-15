@@ -4,7 +4,7 @@ Tags: ai, landing pages, html, rest api, wp-cli
 Requires at least: 6.4
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.4.0
+Stable tag: 0.5.0
 License: MIT
 License URI: https://opensource.org/license/mit
 
@@ -14,7 +14,9 @@ Pubblica AI page self-contained come HTML raw, con editor, anteprima e pubblicaz
 
 AI Pages crea un custom post type per pagine HTML self-contained generate dall'AI. Ogni AI page può essere servita come documento completo, come contenuto autonomo in una shell minima, oppure dentro header e footer del tema.
 
-Le AI page usano di default indirizzi sotto `/pages/`. Il prefisso è configurabile, ma non può essere vuoto.
+Le AI page usano di default indirizzi sotto `/pages/`. Il prefisso è configurabile, ma non può essere vuoto o `/`. Per pubblicare alla radice, usa il percorso personalizzato della singola AI page.
+
+I deploy REST e WP-CLI possono includere immagini: usa placeholder `asset://nome-file` nell'HTML e passa gli asset come base64. Il plugin li carica nella Libreria media e sostituisce i placeholder con gli URL finali. Piccoli elementi grafici ottimizzati dovrebbero restare inline; gli asset sono pensati per veri media.
 
 La pubblicazione via REST è disattivata di default. Puoi abilitarla solo per amministratori o anche per editor. I token sono personali, vengono salvati come hash e il valore viene mostrato solo al momento della generazione.
 
@@ -44,6 +46,12 @@ No. È disattivata di default.
 No. Il token viene mostrato solo una volta. Se lo perdi, generane uno nuovo.
 
 == Changelog ==
+
+= 0.5.0 =
+* Asset immagine importati nella Libreria media tramite placeholder `asset://`.
+* Deduplica degli asset per contenuto: lo stesso file non viene caricato due volte.
+* Asset collegati mostrati nell'editor con anteprima, nome e dimensione.
+* Percorso personalizzato per singola AI page, anche alla radice del sito.
 
 = 0.4.0 =
 * Pubblicazione REST configurabile.

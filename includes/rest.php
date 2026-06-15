@@ -6,7 +6,7 @@
  *
  *   POST /wp-json/ai-pages/v1/deploy
  *   Header: Authorization: Bearer <token>   (oppure X-AIP-Token: <token>)
- *   Body JSON: { key, html, title?, slug?, chrome?, status? }
+ *   Body JSON: { key, html, title?, slug?, path?, chrome?, status?, assets? }
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -61,8 +61,10 @@ function aip_rest_deploy( WP_REST_Request $req ) {
 		'html'   => $p['html'] ?? '',
 		'title'  => $p['title'] ?? null,
 		'slug'   => $p['slug'] ?? null,
+		'path'   => $p['path'] ?? $p['url'] ?? null,
 		'chrome' => $p['chrome'] ?? null,
 		'status' => $p['status'] ?? 'publish',
+		'assets' => $p['assets'] ?? [],
 		'author' => get_current_user_id(),
 	] );
 

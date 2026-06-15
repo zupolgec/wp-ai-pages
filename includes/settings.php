@@ -27,8 +27,8 @@ function aip_handle_save_settings() {
 	check_admin_referer( 'aip_settings' );
 
 	$raw_prefix = isset( $_POST['aip_prefix'] ) ? trim( wp_unslash( $_POST['aip_prefix'] ) ) : '';
-	$new_prefix = sanitize_title( $raw_prefix );
-	if ( '' === $new_prefix ) {
+	$new_prefix = aip_sanitize_prefix( $raw_prefix );
+	if ( '' === $new_prefix || '/' === $raw_prefix ) {
 		wp_safe_redirect( add_query_arg(
 			[ 'post_type' => 'ai_page', 'page' => 'aip-settings', 'aip_prefix_error' => 'empty' ],
 			admin_url( 'edit.php' )
@@ -100,7 +100,7 @@ function aip_render_settings_page() {
 			<div class="notice notice-success is-dismissible"><p>Impostazioni salvate.</p></div>
 		<?php endif; ?>
 		<?php if ( ! empty( $_GET['aip_prefix_error'] ) ) : ?>
-			<div class="notice notice-error is-dismissible"><p>Inserisci un prefisso valido per l'indirizzo delle AI page.</p></div>
+			<div class="notice notice-error is-dismissible"><p>Inserisci un prefisso valido. Per pubblicare una singola AI page alla radice, usa l'indirizzo personalizzato della pagina.</p></div>
 		<?php endif; ?>
 
 		<form method="post" action="<?php echo esc_url( $action ); ?>">
@@ -150,7 +150,7 @@ function aip_render_settings_page() {
 					<td>
 						<?php $home = untrailingslashit( home_url() ); ?>
 						<code><?php echo esc_html( $home ); ?>/</code><input type="text" id="aip_prefix" name="aip_prefix" value="<?php echo esc_attr( $prefix ); ?>" style="width:10em" placeholder="pages" required><code>/nome-pagina</code>
-						<p class="description">Cartella sotto cui vivono le AI page. Non può essere vuota, così eviti conflitti con pagine e articoli.</p>
+						<p class="description">Cartella sotto cui vivono le AI page. Non può essere vuota o <code>/</code>. Per un indirizzo alla radice, usa l'indirizzo personalizzato della singola pagina.</p>
 					</td>
 				</tr>
 				<tr>
@@ -226,18 +226,21 @@ function aip_render_settings_page() {
 		</table>
 
 		<h2>Workflow disponibili</h2>
-		<p>Una AI page è un file HTML self-contained. La <strong>AI page key</strong> la identifica: ripubblicare con la stessa key aggiorna invece di duplicare.</p>
+		<p>Una AI page è un file HTML self-contained. La <strong>AI page key</strong> la identifica: ripubblicare con la stessa key aggiorna invece di duplicare. Puoi anche passare <code>path</code> per darle un indirizzo specifico.</p>
 
 		<h3>1. Deploy da agent cloud (REST a token)</h3>
 		<pre style="<?php echo esc_attr( $dark ); ?>">curl -X POST <?php echo esc_html( $endpoint ); ?> \
   -H "Authorization: Bearer <?php echo esc_html( $prompt_token ); ?>" \
   -H "Content-Type: application/json" \
   -d '{ "key": "black-friday", "title": "Black Friday", "chrome": "full",
-        "status": "publish", "html": "&lt;!doctype html&gt;...&lt;/html&gt;" }'</pre>
-		<p class="description">Campi: <code>key</code> e <code>html</code> obbligatori; <code>title</code>, <code>slug</code>, <code>chrome</code>, <code>status</code> opzionali. La <code>key</code> viene salvata come AI page key univoca. Risposta: <code>{ ok, id, url, action }</code>.</p>
+        "path": "/promo/black-friday", "status": "publish",
+        "html": "&lt;img src=\"asset://hero.webp\" alt=\"...\"&gt;",
+        "assets": [{ "name": "hero.webp", "data": "base64...", "alt": "..." }] }'</pre>
+		<p class="description">Campi: <code>key</code> e <code>html</code> obbligatori; <code>title</code>, <code>slug</code>, <code>path</code>, <code>chrome</code>, <code>status</code>, <code>assets</code> opzionali. La <code>key</code> viene salvata come AI page key univoca. Gli asset vengono caricati nella Libreria media e sostituiscono i placeholder <code>asset://nome-file</code>. Risposta: <code>{ ok, id, url, action, asset_ids }</code>.</p>
 
 		<h3>2. Deploy da riga di comando (WP-CLI)</h3>
 		<pre style="<?php echo esc_attr( $dark ); ?>">wp ai-page upsert --key=black-friday --file=./bf.html --chrome=full
+wp ai-page upsert --key=black-friday --file=./bf.html --url-path=/promo/black-friday --assets=./assets.json
 cat bf.html | wp ai-page upsert --key=black-friday</pre>
 		<p class="description">Tieni i file <code>.html</code> in git per diff, review e rollback.</p>
 
@@ -262,17 +265,24 @@ Header: Content-Type: application/json
 Body JSON: {
   "key": "<ai-page-key-univoca>",
   "title": "<titolo>",
+  "path": "/<percorso-personalizzato-opzionale>",
   "chrome": "full",
   "status": "publish",
-  "html": "<documento html completo>"
+  "html": "<documento html completo>",
+  "assets": [
+    { "name": "hero.webp", "data": "<base64>", "alt": "Descrizione immagine" }
+  ]
 }
 
 Regole per l'HTML:
 - Deve essere self-contained: CSS e JS inline, nessun file locale. Font e librerie solo da CDN.
+- Per piccoli elementi grafici ottimizzati (icone semplici, pattern, divider, decorazioni), usa SVG o CSS inline. Usa assets solo per veri media come foto, illustrazioni grandi o immagini che l'utente potrebbe voler gestire nella Libreria media.
+- Per media generati o forniti insieme alla pagina, usa placeholder asset://nome-file nell'HTML e aggiungi il file in assets. Il sito lo caricherà nella Libreria media e sostituirà il placeholder con l'URL finale.
 - chrome "full": generi un documento HTML completo (<!doctype html> ... </html>). chrome "none": generi solo il contenuto del <body> (il sito aggiunge una struttura minima). chrome "site": la AI page viene avvolta da header e footer del tema.
+- "path" è opzionale e serve per pubblicare la AI page a un indirizzo specifico, es. /promo/black-friday. Se manca, viene usato il prefisso impostato nel sito.
 - "key" identifica la AI page: riusare la stessa key AGGIORNA la pagina invece di crearne una nuova.
-- In italiano non scrivere tutto a iniziali maiuscole (titolo della pagina, non Titolo Della Pagina).
+- In italiano non scrivere tutto a iniziali maiuscole (titolo della pagina, non Titolo Della Pagina), non usare em dash e usa lettere accentate corrette (è, à, ò, ù) invece di apostrofi come e' o a'.
 
-La risposta è JSON: { ok, id, url, action }. Comunica all'utente l'url pubblicato.
+La risposta è JSON: { ok, id, url, action, asset_ids }. Comunica all'utente l'url pubblicato.
 PROMPT;
 }

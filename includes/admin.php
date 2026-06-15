@@ -75,6 +75,7 @@ function aip_params_metabox( $post ) {
 	$chrome = get_post_meta( $post->ID, '_aip_chrome', true ) ?: get_option( 'aip_default_chrome', 'full' );
 	$sc     = get_post_meta( $post->ID, '_aip_shortcodes', true );
 	$key    = get_post_meta( $post->ID, '_aip_page_key', true );
+	$path   = aip_sanitize_path( get_post_meta( $post->ID, '_aip_custom_path', true ) );
 
 	$modes = [
 		'none' => 'Pagina pulita (solo il tuo HTML)',
@@ -99,6 +100,39 @@ function aip_params_metabox( $post ) {
 		<input type="text" id="aip-key" name="aip_page_key" value="<?php echo esc_attr( $key ); ?>" style="width:100%" placeholder="(default: slug)">
 		<span class="description">Identifica la pagina: ripubblicandola con la stessa chiave viene aggiornata invece di duplicata.</span>
 	</p>
+	<p>
+		<label for="aip-path"><strong>Indirizzo personalizzato</strong></label><br>
+		<input type="text" id="aip-path" name="aip_custom_path" value="<?php echo esc_attr( '' !== $path ? '/' . $path : '' ); ?>" style="width:100%" placeholder="/promo/nome-pagina">
+		<span class="description">Opzionale. Se lo compili, questa AI page usa questo indirizzo al posto del prefisso predefinito.</span>
+	</p>
+	<?php
+	$asset_ids = get_post_meta( $post->ID, '_aip_asset_ids', true );
+	$asset_ids = is_array( $asset_ids ) ? array_map( 'intval', $asset_ids ) : [];
+	$asset_ids = array_values( array_filter( $asset_ids, function ( $id ) {
+		return 'attachment' === get_post_type( $id );
+	} ) );
+	if ( $asset_ids ) :
+		?>
+		<p><strong>Asset collegati</strong></p>
+		<ul class="aip-assets">
+			<?php foreach ( $asset_ids as $asset_id ) : ?>
+				<?php
+				$file = get_attached_file( $asset_id );
+				$name = $file ? wp_basename( $file ) : ( '#' . $asset_id );
+				$size = ( $file && file_exists( $file ) ) ? size_format( filesize( $file ), 0 ) : '';
+				?>
+				<li class="aip-asset">
+					<?php echo wp_get_attachment_image( $asset_id, [ 40, 40 ], true, [ 'class' => 'aip-asset-thumb' ] ); ?>
+					<span class="aip-asset-meta">
+						<a href="<?php echo esc_url( (string) get_edit_post_link( $asset_id ) ); ?>"><?php echo esc_html( $name ); ?></a>
+						<?php if ( '' !== $size ) : ?>
+							<span class="description"><?php echo esc_html( $size ); ?></span>
+						<?php endif; ?>
+					</span>
+				</li>
+			<?php endforeach; ?>
+		</ul>
+	<?php endif; ?>
 	<?php
 }
 
@@ -134,6 +168,17 @@ function aip_save_post( $post_id, $post ) {
 	} else {
 		update_post_meta( $post_id, '_aip_page_key', $key );
 	}
+	$raw_path = isset( $_POST['aip_custom_path'] ) ? trim( wp_unslash( $_POST['aip_custom_path'] ) ) : '';
+	$path     = aip_sanitize_path( $raw_path );
+	if ( '' === $raw_path ) {
+		delete_post_meta( $post_id, '_aip_custom_path' );
+	} elseif ( '' === $path ) {
+		add_filter( 'redirect_post_location', 'aip_redirect_with_invalid_path_notice' );
+	} elseif ( aip_path_exists( $path, $post_id ) ) {
+		add_filter( 'redirect_post_location', 'aip_redirect_with_duplicate_path_notice' );
+	} else {
+		update_post_meta( $post_id, '_aip_custom_path', $path );
+	}
 
 	// Contenuto HTML: scritto in post_content evitando la ricorsione.
 	if ( isset( $_POST['aip_html'] ) ) {
@@ -151,12 +196,34 @@ function aip_redirect_with_duplicate_key_notice( $location ) {
 	return add_query_arg( 'aip_duplicate_key', '1', $location );
 }
 
+function aip_redirect_with_duplicate_path_notice( $location ) {
+	remove_filter( 'redirect_post_location', 'aip_redirect_with_duplicate_path_notice' );
+	return add_query_arg( 'aip_duplicate_path', '1', $location );
+}
+
+function aip_redirect_with_invalid_path_notice( $location ) {
+	remove_filter( 'redirect_post_location', 'aip_redirect_with_invalid_path_notice' );
+	return add_query_arg( 'aip_invalid_path', '1', $location );
+}
+
 add_action( 'admin_notices', function () {
 	$screen = get_current_screen();
-	if ( ! $screen || 'ai_page' !== $screen->post_type || empty( $_GET['aip_duplicate_key'] ) ) {
+	if ( ! $screen || 'ai_page' !== $screen->post_type ) {
 		return;
 	}
-	?>
-	<div class="notice notice-error is-dismissible"><p>Questa chiave AI page è già usata: la chiave non è stata aggiornata.</p></div>
-	<?php
+	if ( ! empty( $_GET['aip_duplicate_key'] ) ) :
+		?>
+		<div class="notice notice-error is-dismissible"><p>Questa chiave AI page è già usata: la chiave non è stata aggiornata.</p></div>
+		<?php
+	endif;
+	if ( ! empty( $_GET['aip_duplicate_path'] ) ) :
+		?>
+		<div class="notice notice-error is-dismissible"><p>Questo indirizzo è già usato: l'indirizzo personalizzato non è stato aggiornato.</p></div>
+		<?php
+	endif;
+	if ( ! empty( $_GET['aip_invalid_path'] ) ) :
+		?>
+		<div class="notice notice-error is-dismissible"><p>Inserisci un indirizzo personalizzato valido.</p></div>
+		<?php
+	endif;
 } );

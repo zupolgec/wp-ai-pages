@@ -7,6 +7,9 @@ Una AI page è un documento HTML autonomo (CSS e JS inline). Il plugin la serve 
 ## Caratteristiche
 
 - **Custom post type `ai_page`** con indirizzo personalizzabile (default `/pages/...`).
+- **Percorso personalizzato per pagina**: puoi pubblicare una singola AI page fuori dal prefisso, es. `/promo/black-friday`.
+- **Percorsi root intenzionali**: il prefisso globale non può essere `/`; per pubblicare alla radice usa il percorso personalizzato della singola AI page.
+- **Asset nella Libreria media**: il deploy può includere immagini base64 e placeholder `asset://nome-file`. Gli asset identici vengono deduplicati per contenuto e l'editor mostra quelli collegati con anteprima, nome e dimensione. Gli asset con lo stesso contenuto non vengono duplicati e sono elencati nell'editor con anteprima, nome e dimensione.
 - **Tre tipi di pagina** (chrome):
   - `full` (default): il tuo documento HTML completo, servito identico.
   - `none`: solo il tuo contenuto, il sito ci mette attorno una struttura minima più gli snippet head/footer.
@@ -35,11 +38,11 @@ Gli zip pubblicati sono disponibili nelle [GitHub Releases](https://github.com/z
 Per creare una release, aggiorna `Version` in `ai-pages.php` e `Stable tag` in `readme.txt`, poi crea un tag `vX.Y.Z` coerente:
 
 ```bash
-git tag v0.4.0
-git push origin v0.4.0
+git tag v0.5.0
+git push origin v0.5.0
 ```
 
-La GitHub Action valida i metadati e allega alla release lo zip installabile, ad esempio `ai-pages-0.4.0.zip`.
+La GitHub Action valida i metadati e allega alla release lo zip installabile, ad esempio `ai-pages-0.5.0.zip`.
 
 ## Test
 
@@ -54,7 +57,7 @@ wp option update aip_prefix pages
 wp rewrite flush
 ```
 
-Checklist manuale consigliata: apri la dashboard, apri `AI Pages → Impostazioni`, verifica che il prefisso vuoto mostri errore, crea una AI page via editor, crea una AI page via WP-CLI, abilita temporaneamente REST per amministratori, genera un token, pubblica via REST, revoca il token e rimetti la pubblicazione automatica su disattivata.
+Checklist manuale consigliata: apri la dashboard, apri `AI Pages → Impostazioni`, verifica che prefisso vuoto e `/` mostrino errore, crea una AI page via editor, crea una AI page via WP-CLI, prova un percorso personalizzato alla radice, abilita temporaneamente REST per amministratori, genera un token, pubblica via REST con asset, revoca il token e rimetti la pubblicazione automatica su disattivata.
 
 ## Deploy
 
@@ -67,11 +70,13 @@ POST /wp-json/ai-pages/v1/deploy
 Authorization: Bearer <token>
 Content-Type: application/json
 
-{ "key": "black-friday", "title": "Black Friday", "chrome": "full",
-  "status": "publish", "html": "<!doctype html>...</html>" }
+{ "key": "black-friday", "title": "Black Friday", "path": "/promo/black-friday",
+  "chrome": "full", "status": "publish",
+  "html": "<!doctype html><img src=\"asset://hero.webp\"></html>",
+  "assets": [{ "name": "hero.webp", "data": "<base64>", "alt": "Descrizione immagine" }] }
 ```
 
-Campi: `key` e `html` obbligatori; `title`, `slug`, `chrome`, `status` opzionali. La `key` viene salvata come AI page key univoca. Risposta: `{ ok, id, url, action }`. Ripubblicare con la stessa `key` aggiorna la pagina invece di duplicarla.
+Campi: `key` e `html` obbligatori; `title`, `slug`, `path`, `chrome`, `status`, `assets` opzionali. La `key` viene salvata come AI page key univoca. Gli asset vengono caricati nella Libreria media e sostituiscono i placeholder `asset://nome-file`. Piccoli elementi grafici ottimizzati dovrebbero restare inline in HTML/CSS/SVG; usa `assets` solo per veri media. Risposta: `{ ok, id, url, action, asset_ids }`. Ripubblicare con la stessa `key` aggiorna la pagina invece di duplicarla.
 
 Nelle Impostazioni c'è anche un prompt pronto da incollare nell'agent. Se non hai appena generato il token, il prompt contiene un segnaposto da sostituire.
 
@@ -79,6 +84,7 @@ Nelle Impostazioni c'è anche un prompt pronto da incollare nell'agent. Se non h
 
 ```
 wp ai-page upsert --key=black-friday --file=./bf.html --chrome=full
+wp ai-page upsert --key=black-friday --file=./bf.html --url-path=/promo/black-friday --assets=./assets.json
 cat bf.html | wp ai-page upsert --key=black-friday
 ```
 

@@ -10,9 +10,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 add_action( 'init', 'aip_register_meta' );
 function aip_register_meta() {
 	$keys = [
-		'_aip_page_key',   // chiave univoca per upsert idempotente
-		'_aip_chrome',     // none|site|full
-		'_aip_shortcodes', // '1' = esegui do_shortcode sul contenuto
+		'_aip_page_key',    // chiave univoca per upsert idempotente
+		'_aip_custom_path', // percorso URL personalizzato, senza slash iniziale
+		'_aip_chrome',      // none|site|full
+		'_aip_shortcodes',  // '1' = esegui do_shortcode sul contenuto
 	];
 	foreach ( $keys as $key ) {
 		register_post_meta( 'ai_page', $key, [
@@ -25,4 +26,18 @@ function aip_register_meta() {
 			'sanitize_callback' => 'sanitize_text_field',
 		] );
 	}
+
+	register_post_meta( 'ai_page', '_aip_asset_ids', [
+		'type'          => 'array',
+		'single'        => true,
+		'show_in_rest'  => [
+			'schema' => [
+				'type'  => 'array',
+				'items' => [ 'type' => 'integer' ],
+			],
+		],
+		'auth_callback' => function () {
+			return aip_current_user_can_edit_ai_pages();
+		},
+	] );
 }

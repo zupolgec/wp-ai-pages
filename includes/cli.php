@@ -23,8 +23,14 @@ class AIP_CLI {
 	 * [--title=<title>]
 	 * : Titolo della page.
 	 *
-	 * [--slug=<slug>]
-	 * : Slug URL (default: la key).
+		 * [--slug=<slug>]
+		 * : Slug URL (default: la key).
+		 *
+		 * [--url-path=<path>]
+		 * : Percorso URL personalizzato, es. /promo/nome-pagina.
+		 *
+		 * [--assets=<path>]
+		 * : Path a un file JSON con la lista assets per i placeholder asset://.
 	 *
 	 * [--chrome=<chrome>]
 	 * : none|site|full. Default: il tipo di pagina predefinito (Impostazioni).
@@ -49,13 +55,27 @@ class AIP_CLI {
 			$html = stream_get_contents( STDIN );
 		}
 
+		$assets = [];
+		if ( ! empty( $assoc['assets'] ) ) {
+			if ( ! file_exists( $assoc['assets'] ) ) {
+				WP_CLI::error( "File assets non trovato: {$assoc['assets']}" );
+			}
+			$decoded = json_decode( file_get_contents( $assoc['assets'] ), true );
+			if ( ! is_array( $decoded ) ) {
+				WP_CLI::error( 'Il file assets deve contenere JSON valido.' );
+			}
+			$assets = $decoded['assets'] ?? $decoded;
+		}
+
 		$res = aip_upsert_landing( [
 			'key'    => $assoc['key'] ?? '',
 			'html'   => $html,
 			'title'  => $assoc['title'] ?? null,
 			'slug'   => $assoc['slug'] ?? null,
+			'path'   => $assoc['url-path'] ?? null,
 			'chrome' => $assoc['chrome'] ?? null,
 			'status' => $assoc['status'] ?? 'publish',
+			'assets' => $assets,
 		] );
 
 		if ( is_wp_error( $res ) ) {

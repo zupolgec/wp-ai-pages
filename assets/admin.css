@@ -92,3 +92,33 @@
 	.aip-edit:not(.aip-fs) .CodeMirror,
 	.aip-edit:not(.aip-fs) .aip-preview-wrap { height: 50vh; }
 }
+
+.aip-assets {
+	margin: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+.aip-asset {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 0;
+}
+.aip-asset-thumb {
+	width: 40px;
+	height: 40px;
+	object-fit: cover;
+	border: 1px solid #c3c4c7;
+	border-radius: 3px;
+	flex: 0 0 auto;
+}
+.aip-asset-meta {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	line-height: 1.3;
+}
+.aip-asset-meta a {
+	word-break: break-all;
+}

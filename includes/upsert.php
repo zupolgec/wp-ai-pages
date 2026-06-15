@@ -42,7 +42,7 @@ function aip_write_post( array $postarr ) {
 /**
  * Crea o aggiorna una AI page in modo idempotente per AI page key.
  *
- * @param array $args key, html, title?, slug?, chrome?, status?
+ * @param array $args key, html, title?, slug?, path?, chrome?, status?, assets?
  * @return array|WP_Error  [id, url, action] oppure WP_Error.
  */
 function aip_upsert_landing( array $args ) {
@@ -61,10 +61,22 @@ function aip_upsert_landing( array $args ) {
 	$status = in_array( $args['status'] ?? 'publish', [ 'publish', 'draft' ], true ) ? $args['status'] : 'publish';
 	$slug   = sanitize_title( $args['slug'] ?? $key );
 	$title  = sanitize_text_field( $args['title'] ?? $key );
+	$path_provided = array_key_exists( 'path', $args ) || array_key_exists( 'url', $args );
+	$path = null;
+	if ( $path_provided ) {
+		$path = aip_sanitize_path( $args['path'] ?? $args['url'] ?? '' );
+	}
 
 	$existing = aip_get_page_ids_by_key( $key );
 	if ( count( $existing ) > 1 ) {
 		return new WP_Error( 'aip_duplicate_key', 'Questa AI page key è già usata da più pagine.' );
+	}
+	$existing_id = $existing ? (int) $existing[0] : 0;
+	if ( null !== $path && '' !== $path && aip_path_exists( $path, $existing_id ) ) {
+		return new WP_Error( 'aip_duplicate_path', 'Questo percorso è già usato da un’altra AI page.' );
+	}
+	if ( ( null === $path || '' === $path ) && aip_path_exists( aip_default_path_for_slug( $slug ), $existing_id ) ) {
+		return new WP_Error( 'aip_duplicate_path', 'Il percorso predefinito di questa AI page è già usato.' );
 	}
 
 	$postarr = [
@@ -80,7 +92,7 @@ function aip_upsert_landing( array $args ) {
 	}
 
 	if ( $existing ) {
-		$postarr['ID'] = $existing[0];
+		$postarr['ID'] = $existing_id;
 		$action        = 'updated';
 	} else {
 		$action = 'created';
@@ -90,14 +102,44 @@ function aip_upsert_landing( array $args ) {
 	if ( is_wp_error( $id ) ) {
 		return $id;
 	}
+	$asset_ids = [];
+
+	if ( null !== $path ) {
+		if ( '' === $path ) {
+			delete_post_meta( $id, '_aip_custom_path' );
+		} else {
+			update_post_meta( $id, '_aip_custom_path', $path );
+		}
+	}
+
+	if ( ! empty( $args['assets'] ) ) {
+		$asset_result = aip_import_assets_for_post( $id, $html, $args['assets'] );
+		if ( is_wp_error( $asset_result ) ) {
+			return $asset_result;
+		}
+
+		$html = $asset_result['html'];
+		$asset_ids = array_map( 'intval', $asset_result['asset_ids'] );
+		update_post_meta( $id, '_aip_asset_ids', $asset_ids );
+		if ( $html !== (string) ( $args['html'] ?? '' ) ) {
+			$written = aip_write_post( [
+				'ID'           => $id,
+				'post_content' => wp_slash( $html ),
+			] );
+			if ( is_wp_error( $written ) ) {
+				return $written;
+			}
+		}
+	}
 
 	update_post_meta( $id, '_aip_page_key', $key );
 	update_post_meta( $id, '_aip_chrome', $chrome );
 
 	return [
-		'id'     => $id,
-		'url'    => get_permalink( $id ),
-		'action' => $action,
+		'id'        => $id,
+		'url'       => get_permalink( $id ),
+		'action'    => $action,
+		'asset_ids' => $asset_ids,
 	];
 }
 
